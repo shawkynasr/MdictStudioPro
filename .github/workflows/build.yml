@@ -1,0 +1,173 @@
+name: Build Releases
+
+# Builds on every push of a version tag (v1.0.0, v2.1.3, etc.) and can
+# also be triggered manually from the Actions tab for a test build.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+jobs:
+  # ---------------------------------------------------------------------
+  # macOS (Apple Silicon / arm64 only)
+  #
+  # GitHub-hosted macOS runners are Apple Silicon as of macos-14+, so
+  # this produces an arm64-only .dmg. Build and attach the Intel (x86_64)
+  # .dmg separately from your own Intel Mac - see the release job's notes
+  # at the bottom of this file for where it slots in.
+  # ---------------------------------------------------------------------
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Build .app with PyInstaller
+        run: python build.py
+
+      - name: Build .dmg
+        run: |
+          create-dmg \
+            --volname "Mdict Studio Pro" \
+            --volicon "AppIcon.icns" \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Mdict Studio Pro.app" 150 200 \
+            --app-drop-link 450 200 \
+            "MdictStudioPro-macOS-arm64.dmg" \
+            "dist/Mdict Studio Pro.app" \
+          || true
+          # create-dmg returns a non-zero exit code on some benign Finder/
+          # AppleScript timing warnings even on success - the `|| true`
+          # keeps the step from failing the job. Confirm the .dmg exists:
+          ls -la MdictStudioPro-macOS-arm64.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MdictStudioPro-macOS-arm64
+          path: MdictStudioPro-macOS-arm64.dmg
+
+  # ---------------------------------------------------------------------
+  # Windows (x64)
+  # ---------------------------------------------------------------------
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build .exe with PyInstaller
+        run: python build.py
+
+      - name: Zip the build output
+        run: Compress-Archive -Path "dist/Mdict Studio Pro/*" -DestinationPath "MdictStudioPro-Windows-x64.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MdictStudioPro-Windows-x64
+          path: MdictStudioPro-Windows-x64.zip
+
+  # ---------------------------------------------------------------------
+  # Linux (x64)
+  # ---------------------------------------------------------------------
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # PyQt6's PyInstaller hooks import the package during analysis,
+      # which needs these shared libs present even on a headless runner
+      # with no display attached. Trim this list if your PyQt6 version
+      # needs fewer, but missing ones surface as opaque ImportErrors.
+      - name: Install system libraries for PyQt6
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libegl1 \
+            libxkbcommon0 \
+            libxkbcommon-x11-0 \
+            libdbus-1-3 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xinerama0
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: python build.py
+
+      - name: Package as tar.gz
+        run: |
+          cd dist
+          tar -czf ../MdictStudioPro-Linux-x64.tar.gz "Mdict Studio Pro"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MdictStudioPro-Linux-x64
+          path: MdictStudioPro-Linux-x64.tar.gz
+
+  # ---------------------------------------------------------------------
+  # Create the GitHub Release and attach all three builds.
+  # Only runs on an actual version-tag push, not on manual test runs.
+  # ---------------------------------------------------------------------
+  release:
+    needs: [build-macos, build-windows, build-linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/MdictStudioPro-macOS-arm64/MdictStudioPro-macOS-arm64.dmg
+            artifacts/MdictStudioPro-Windows-x64/MdictStudioPro-Windows-x64.zip
+            artifacts/MdictStudioPro-Linux-x64/MdictStudioPro-Linux-x64.tar.gz
+          body: |
+            **Note:** the macOS build above is Apple Silicon (arm64) only,
+            built on GitHub's arm64 runners. An Intel (x86_64) .dmg,
+            built locally, is attached separately - see
+            `MdictStudioPro-macOS-x86_64.dmg` if present below.
+          draft: true
+          generate_release_notes: true
