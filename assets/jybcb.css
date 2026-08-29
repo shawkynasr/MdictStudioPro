@@ -1,0 +1,384 @@
+/* 1) 字体引入 */
+@font-face {
+  font-family: "Bopomofo Custom";
+  src: url("fonts/bopomofo.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "TWK-Mod"; /* 台湾教育部标准楷书修改版 */
+  src: url("fonts/TWK-Mod.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Revised Dict Font"; /* 官网字体 */
+  src: url("fonts/revised.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* 2) 变量与配色 */
+:root {
+  --c-orange: #B45E13;
+  --c-red: #CC0000;
+  --c-bg: #f7f2ee;
+  --c-content-bg: #ffffff;
+  --c-text: #000000;
+  --c-link: #4b7095;
+  --c-border: #cccccc;
+  --c-white: #ffffff;
+
+  --font-kai: "Bopomofo Custom", "TWK-Mod", "Revised Dict Font", serif;
+  --font-sans: "Microsoft JhengHei UI", "Source Han Sans TC VF", "Noto Sans TC", sans-serif;
+
+  --base-font-size: 1.25rem;
+  --base-line-height: 1.6;
+
+  /* 可调：左侧橙色栏宽度与正文间距 */
+  --label-w: 5.0em;
+  --label-gap: .8em;
+}
+
+/* 3) 主容器 */
+.edugycd {
+  background: var(--c-bg);
+  color: var(--c-text);
+  border: 1px solid var(--c-border);
+  border-top: 5px solid var(--c-orange);
+  padding: 12px;
+  margin: 8px 0;
+  font-family: var(--font-kai);
+  font-size: var(--base-font-size);
+  line-height: var(--base-line-height);
+}
+
+/* 4) 标题组（若你的源数据没有 dict-title-group，可忽略） */
+.edugycd .dict-title-group {
+  position: relative;
+  display: block;
+  background: var(--c-content-bg);
+  border: 1px solid var(--c-border);
+  padding: .45em 1em .45em calc(var(--label-w) + var(--label-gap));
+  margin-bottom: -1px;
+  box-sizing: border-box;
+}
+
+/* 5) 注音 / 漢語拼音 / 釋義 统一容器 */
+.edugycd .bopomo,
+.edugycd .hanyu,
+.edugycd .article {
+  position: relative;
+  display: block;
+  background: var(--c-content-bg);
+  border: 1px solid var(--c-border);
+  padding: .45em 1em .45em calc(var(--label-w) + var(--label-gap));
+  margin-bottom: -1px;
+  box-sizing: border-box;
+}
+
+/* 6) 左侧橙色标签栏 */
+.edugycd .dict-title-group::before,
+.edugycd .bopomo::before,
+.edugycd .hanyu::before,
+.edugycd .article::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--label-w);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  background-color: var(--c-orange);
+  color: var(--c-white);
+  font-family: var(--font-sans);
+  font-size: 1.05rem;
+  letter-spacing: .35em;
+  text-indent: .35em;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+/* 7) 指定左侧栏文字 */
+.edugycd .dict-title-group::before { content: "字詞"; }
+.edugycd .bopomo::before { content: "注音"; }
+.edugycd .hanyu::before { content: "漢語拼音"; letter-spacing: .18em; text-indent: .18em; }
+.edugycd .article::before { content: "釋義"; }
+
+/* 8) 让区块内部内容在橙色栏之上 */
+.edugycd .dict-title-group > *,
+.edugycd .bopomo > *,
+.edugycd .hanyu > *,
+.edugycd .article > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* 9) 注音 / 漢語拼音 更紧凑 */
+.edugycd .bopomo,
+.edugycd .hanyu {
+  display: flex;
+  align-items: center;
+  min-height: 0;
+  line-height: 1.35;
+  padding-top: .2em;
+  padding-bottom: .2em;
+}
+
+/* 10) 釋義：处理空白问题 - 已修改 */
+.edugycd .article {
+  color: transparent; /* 隐藏“釋義：”文本节点 */
+  line-height: 0;     /* 压缩该文本节点占据的垂直空间 */
+}
+.edugycd .article > .mean {
+  color: var(--c-text);           /* 恢复释义正文的颜色 */
+  line-height: var(--base-line-height); /* 恢复正常的行高 */
+}
+
+/* 11) 釋義正文样式与背景色 */
+.edugycd .mean {
+  display: block;
+  text-align: justify;
+  background: var(--c-content-bg);
+}
+.edugycd .mean ol,
+.edugycd .mean ul {
+  padding-left: 2em;
+}
+
+/* 12) 詞性/示例標記 */
+.edugycd .example {
+  display: inline-block;
+  margin: 0.2em 0.2em 0 0;
+  padding: 0.1em 0.4em;
+  line-height: 1.1;
+  border-radius: 0.2em;
+  background-color: var(--c-red);
+  color: var(--c-white);
+  vertical-align: middle;
+  font-family: var(--font-sans);
+  font-weight: bold;
+  font-size: calc(var(--base-font-size) * 0.8);
+}
+
+/* 13) 釋義分隔線 */
+.edugycd .mean br {
+  display: block;
+  content: "";
+  height: 0;
+  padding: 0;
+  margin: 0.6em 0;
+  border-bottom: 1px solid var(--c-border);
+}
+.edugycd .mean .example + br {
+  display: initial; content: none; height: auto; margin: 0; border: none;
+}
+
+/* 14) 多音字參考 */
+.edugycd .polyref {
+  display: block;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--c-border);
+  background-color: var(--c-content-bg);
+  font-size: 1rem;
+  color: var(--c-link);
+}
+.edugycd .polyref a { color: var(--c-link); }
+
+/* 15) 詞頭与部首 */
+.edugycd .index {
+  display: inline-block;
+  font-size: 2.8rem;
+  line-height: 1.1;
+  color: var(--c-text);
+  margin: 0;
+  vertical-align: baseline;
+}
+.edugycd .radical {
+  display: inline-block;
+  font-size: 1rem;
+  line-height: 1.2;
+  color: #555;
+  margin-left: .5em;
+  vertical-align: baseline;
+}
+.edugycd .radical::before { content: "["; }
+.edugycd .radical::after  { content: "]"; }
+
+/* 16) 其他 */
+.edugycd a { color: var(--c-link); text-decoration: none; }
+.edugycd a:hover { text-decoration: underline; }
+
+/* 隐藏源数据中多余的元素 */
+.edugycd > br,
+.edugycd .article > br,
+.edugycd .code,
+.edugycd .accent { display: none !important; }
+span.举例 { display: none; }
+
+/* A) 左侧橙色栏：补齐「漢語拼音 ↔ 釋義」之间的白线 */
+.edugycd .hanyu::before,
+.edugycd .article::before {
+  /* 用内阴影画一条 1px 的白线，避免改变宽度 */
+  box-shadow: inset 0 1px 0 var(--c-white);
+}
+
+/* B) 左侧栏三项加粗（仅加粗标签，不影响正文内容） */
+.edugycd .bopomo::before,
+.edugycd .hanyu::before,
+.edugycd .article::before {
+  font-weight: 600; /* 或 bold */
+}
+
+/* C) radical 方括号内字符不要被拉开；把空格视觉上压为 0 宽 */
+.edugycd .radical {
+  letter-spacing: normal;
+  word-spacing: normal; /* Resetting to normal fixes the severe overlapping */
+  white-space: nowrap; 
+}
+/* ====================================================
+   Idiom Dictionary Specific Layout (.content-section) 
+   ==================================================== */
+
+
+.edugycd .content-section {
+  display: block;
+  margin-top: 12px;
+}
+
+/* 2. Red Bracketed Headers */
+.edugycd .content-title {
+  display: block;
+  color: #CC0000 !important; /* Deep red for bright mode */
+  font-weight: bold;
+  font-size: 1.05rem;
+  margin-top: 18px;
+  margin-bottom: 4px;
+}
+.edugycd .content-title::before { content: "【"; }
+.edugycd .content-title::after { content: "】"; }
+
+/* 3. Text Content blocks */
+.edugycd .content-text {
+  display: block;
+  margin-left: 12px; /* Indents text elegantly under the headers */
+  margin-bottom: 8px;
+  line-height: 1.6;
+  text-align: justify;
+}
+
+/* 4. Ancient Text Formatting (Blockquote) */
+.edugycd .dianyuan-wenxian {
+  background: #f5f7fb;
+  border-left: 4px solid #c8ced8;
+  padding: 8px 12px;
+  color: #333333;
+  border-radius: 0 4px 4px 0;
+  margin-bottom: 12px;
+}
+
+/* ====================================================
+   Dark Mode Support for Idiom Elements
+   ==================================================== */
+@media (prefers-color-scheme: dark) {
+  /* Soften the red headers so they aren't blinding in the dark */
+  .edugycd .content-title {
+    color: #ff6b6b !important; 
+  }
+  
+  /* Darken the ancient text blockquote background */
+  .edugycd .dianyuan-wenxian { 
+    background: #1a2029; 
+    border-left-color: #475069; 
+    color: #d0d0d0;
+  }
+}
+/* ====================================================
+   Idiom Dictionary: Compare Table (辨識-例句)
+   ==================================================== */
+.edugycd .compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  margin-bottom: 8px;
+  font-size: 0.95em;
+}
+
+.edugycd .compare-table th {
+  background-color: #f0f4f8; /* Soft blue header */
+  color: #333333;
+  padding: 6px 10px;
+  border: 1px solid #dcdcdc;
+  font-weight: bold;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.edugycd .compare-table td {
+  padding: 6px 10px;
+  border: 1px solid #dcdcdc;
+  vertical-align: middle;
+}
+
+.edugycd .compare-table td.mark {
+  text-align: center;
+  font-family: sans-serif; /* Ensures circles and crosses align well */
+  font-size: 1.1em;
+  color: #CC0000; /* Makes the marks red for easy reading */
+  white-space: nowrap;
+  width: 1%; /* Forces the mark columns to be as small as possible */
+}
+
+.edugycd .compare-table td.sentence {
+  text-align: left;
+  line-height: 1.5;
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+  .edugycd .compare-table th { 
+    background-color: #2a313b; 
+    border-color: #444444; 
+    color: #e0e0e0; 
+  }
+  .edugycd .compare-table td { 
+    border-color: #444444; 
+  }
+  .edugycd .compare-table td.mark {
+    color: #ff6b6b;
+  }
+}
+/* ====================================================
+   Idiom Dictionary: Example Sentences (用法說明-例句)
+   ==================================================== */
+.edugycd .example-list {
+  margin: 4px 0 8px 0;
+  padding-left: 2em; /* Creates a clean indent for the numbers */
+}
+
+.edugycd .example-list li {
+  margin-bottom: 6px;
+  line-height: 1.6;
+  text-align: justify;
+}
+
+/* Highlight the idiom inside the example sentence */
+.edugycd .example-list em {
+  color: #CC0000; /* Distinct red color */
+  font-style: normal; /* Prevents italics if you prefer it straight */
+  font-weight: bold;
+}
+
+/* Dark Mode Support for the Highlight */
+@media (prefers-color-scheme: dark) {
+  .edugycd .example-list em {
+    color: #ff6b6b;
+  }
+}
