@@ -127,6 +127,22 @@ A few dictionaries built with community/example converter plugins, showing the t
 </tr>
 </table>
 
+## Credits & Acknowledgments
+
+Mdict Studio Pro builds upon and integrates work from across the open-source dictionary community:
+
+- **Core & Engine:**
+  - UI foundations inspired by the original *mdictGui* project by **jekovcar**.
+  - Powered by **[mdtt](https://github.com/libukai/mdtt)** by libukai and **[mdict-utils](https://github.com/liuyug/mdict-utils)**.
+
+- **Stylesheets & Layouts:**
+  - `cbgycd.css` (WFG Style) based on the original styling by **DFL**.
+  - `jybcb.css` layout based on design and stylesheet refinements by **bmcc718**.
+
+- **Plugins & Parsers:**
+  - `edudict_plugin.py` parser logic based on original processing scripts by **kking**.
+  - CC-CEDICT data parsing based on the implementation by **shbf@PDAWIKI**.
+  
 ## Contributing
 
 Contributions, issues, and feature requests are welcome — check the [issues page](https://github.com/shawkynasr/MdictStudioPro/issues) to get started.
