@@ -133,7 +133,7 @@ Mdict Studio Pro 的诞生离不开开源词典社区诸多优秀项目的支持
 
 - **核心与底层引擎：**
   - 界面基础设计参考了 **jekovcar** 开发的 *mdictGui* 原版项目。
-  - 底层词典处理引擎基于 libukai 开发的 **[mdtt](https://github.com/libukai/mdtt)** 与 **[mdict-utils](https://github.com/liuyug/mdict-utils)**[cite: 10]。
+  - 底层词典处理引擎基于 libukai 开发的 **[mdtt](https://github.com/libukai/mdtt)** 与 **[mdict-utils](https://github.com/liuyug/mdict-utils)**。
 
 - **样式表与排版设计：**
   - `cbgycd.css` (WFG 风格) 基于 **DFL** 的原始样式设计。
