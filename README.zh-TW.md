@@ -133,11 +133,11 @@ Mdict Studio Pro 的誕生離不開開源詞典社群諸多優秀專案的啟發
 
 - **核心與底層引擎：**
   - 使用者介面基礎架構參考自 **jekovcar** 開發的 *mdictGui* 原版專案。
-  - 底層引擎技術基於 libukai 的 **[mdtt](https://github.com/libukai/mdtt)** 與 **[mdict-utils](https://github.com/liuyug/mdict-utils)**[cite: 10]。
+  - 底層引擎技術基於 libukai 的 **[mdtt](https://github.com/libukai/mdtt)** 與 **[mdict-utils](https://github.com/liuyug/mdict-utils)**。
 
 - **樣式表與排版設計：**
   - `cbgycd.css`（WFG 排版風格）基於 **DFL** 的原始樣式設計。
-  - `jybcb.css` 詞典排版佈局基於 **bmcc718** 的樣式表方案[cite: 5]。
+  - `jybcb.css` 詞典排版佈局基於 **bmcc718** 的樣式表方案。
 
 - **外掛與資料解析：**
   - `edudict_plugin.py` 解析邏輯基於 **kking** 的原始處理腳本。
