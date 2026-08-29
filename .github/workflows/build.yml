@@ -43,7 +43,7 @@ jobs:
         run: |
           create-dmg \
             --volname "Mdict Studio Pro" \
-            --volicon "AppIcon.icns" \
+            --volicon "assets/AppIcon.icns" \
             --window-size 600 400 \
             --icon-size 100 \
             --icon "Mdict Studio Pro.app" 150 200 \
