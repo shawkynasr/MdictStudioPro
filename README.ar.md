@@ -179,6 +179,24 @@ class MyCustomDictPlugin(BaseConverterPlugin):
 </tr>
 </table>
 
+<div dir="rtl" align="right">## شكر وتقدير ومصادر المشروع (Credits & References)
+
+تم بناء Mdict Studio Pro بالاعتماد على جهود ومشاريع مجتمع تطوير القواميس مفتوحة المصدر:
+
+- **النواة والمحرك الأساسي:**
+  - تم تصميم الواجهة الرسومية بناءً على المشروع الأصلي *mdictGui* للمطور **jekovcar**.
+  - يعتمد على محرك **[mdtt](https://github.com/libukai/mdtt)** للمطور libukai ومكتبة **[mdict-utils](https://github.com/liuyug/mdict-utils)**.
+
+- **ملفات التنسيق والأنماط (CSS):**
+  - تنسيق `cbgycd.css` (نمط WFG) مبني على التصميم الأصلي للمطور **DFL**.
+  - تنسيق `jybcb.css` لتخطيط وعرض القواميس مبني على تحسينات **bmcc718**.
+
+- **الإضافات ومعالجة البيانات (Plugins):**
+  - منطق التحويل في `edudict_plugin.py` مبني على السكربت الأصلي للمطور **kking**.
+  - معالجة وتحويل بيانات CC-CEDICT مبنية على عمل المطور **shbf@PDAWIKI**.
+
+</div>
+
 ## المساهمة
 
 <div dir="rtl" align="right">
