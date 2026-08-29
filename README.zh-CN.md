@@ -127,6 +127,22 @@ Mdict Studio Pro 会在下次启动时（或点击转换器标签页中的**刷�
 </tr>
 </table>
 
+## 致谢与参考来源 (Credits & References)
+
+Mdict Studio Pro 的诞生离不开开源词典社区诸多优秀项目的支持与启发：
+
+- **核心与底层引擎：**
+  - 界面基础设计参考了 **jekovcar** 开发的 *mdictGui* 原版项目。
+  - 底层词典处理引擎基于 libukai 开发的 **[mdtt](https://github.com/libukai/mdtt)** 与 **[mdict-utils](https://github.com/liuyug/mdict-utils)**[cite: 10]。
+
+- **样式表与排版设计：**
+  - `cbgycd.css` (WFG 风格) 基于 **DFL** 的原始样式设计。
+  - `jybcb.css` 词典排版布局基于 **bmcc718** 的样式表方案。
+
+- **插件与数据解析：**
+  - `edudict_plugin.py` 解析逻辑基于 **kking** 的原始脚本方案。
+  - CC-CEDICT 数据转换处理基于 **shbf@PDAWIKI** 的制作方案。
+
 ## 贡献指南
 
 欢迎提交贡献、反馈问题与功能建议——请前往 [issues 页面](https://github.com/shawkynasr/MdictStudioPro/issues) 开始参与。
