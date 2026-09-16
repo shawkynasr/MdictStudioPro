@@ -13,11 +13,71 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QTabWidget, QLabel, QLineEdit, 
                              QPushButton, QTextEdit, QFileDialog, QCheckBox, 
                              QComboBox, QGroupBox, QFormLayout, QMessageBox, 
-                             QProgressBar)
+                             QProgressBar, QRadioButton, QButtonGroup)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QAction
 
 from base_plugin import BaseConverterPlugin
+
+# Custom MDX writer for the "MdxBuilder"-compatible sort option.
+try:
+    from mdict_utils.writer import MDictWriter as MDictUtilsWriter, _OffsetTableEntry, pack_mdx_txt
+    import locale, re, string, functools
+    
+    HAVE_CUSTOM_WRITER = True
+
+    class MDictWriterCustomSort(MDictUtilsWriter):
+        def __init__(self, *args, sort_style="mdict-utils", **kwargs):
+            self._sort_style = sort_style
+            super().__init__(*args, **kwargs)
+
+        def _fold_case(self, word):
+            if self._sort_style == "mdxbuilder":
+                return "".join(chr(ord(c) + 32) if "A" <= c <= "Z" else c for c in word)
+            return word.lower()
+
+        def _build_offset_table(self, items):
+            pattern = '[%s ]+' % string.punctuation
+            regex_strip = re.compile(pattern)
+
+            def mdict_cmp(item1, item2):
+                key1 = self._fold_case(item1['key'])
+                key2 = self._fold_case(item2['key'])
+                if not self._is_mdd:
+                    key1 = regex_strip.sub('', key1)
+                    key2 = regex_strip.sub('', key2)
+                key1 = locale.strxfrm(key1)
+                key2 = locale.strxfrm(key2)
+                if key1 > key2: return 1
+                elif key1 < key2: return -1
+                if len(key1) > len(key2): return -1
+                elif len(key1) < len(key2): return 1
+                key1 = key1.rstrip(string.punctuation)
+                key2 = key2.rstrip(string.punctuation)
+                if key1 > key2: return -1
+                elif key1 < key2: return 1
+                return 0
+
+            items.sort(key=functools.cmp_to_key(mdict_cmp))
+
+            self._offset_table = []
+            offset = 0
+            for record in items:
+                key = record['key']
+                key_enc = key.encode(self._python_encoding)
+                key_null = (key + "\0").encode(self._python_encoding)
+                key_len = len(key_enc) // self._encoding_length
+                self._offset_table.append(_OffsetTableEntry(
+                    key0=record['key'], key=key_enc, key_null=key_null, key_len=key_len,
+                    record_null=record['path'], record_size=record['size'],
+                    record_pos=record['pos'], offset=offset,
+                    encoding=self._python_encoding, is_mdd=self._is_mdd,
+                ))
+                offset += record['size']
+            self._total_record_len = offset
+
+except ImportError:
+    HAVE_CUSTOM_WRITER = False
 
 # ==========================================================
 # PLUGIN MANAGER
@@ -106,6 +166,54 @@ class PluginManager:
 # ==========================================================
 # THREAD WORKERS
 # ==========================================================
+class PythonPackWorker(QThread):
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+    log_msg = pyqtSignal(str)
+
+    def __init__(self, input_txt, output_mdx, sort_style, encoding="utf-8", title="", description=""):
+        super().__init__()
+        self.input_txt = input_txt
+        self.output_mdx = output_mdx
+        self.sort_style = sort_style
+        self.encoding = encoding
+        self.title = title
+        self.description = description
+
+    def run(self):
+        try:
+            self.log_msg.emit(f"Parsing dictionary text file ({self.encoding})...")
+            
+            # Import the library functions
+            import mdict_utils.writer as mu_writer
+            
+            # 1. Parse the text file into the exact dictionary list the writer expects
+            # (This completely replaces parse_txt_to_tuples!)
+            dictionary_data = mu_writer.pack_mdx_txt(
+                self.input_txt, 
+                encoding=self.encoding
+            )
+            
+            self.log_msg.emit(f"Initializing native packing engine ({self.sort_style} sort)...")
+            
+            # 2. Instantiate our custom writer directly with the parsed data
+            writer = MDictWriterCustomSort(
+                dictionary_data,
+                title=self.title,
+                description=self.description,
+                sort_style=self.sort_style
+            )
+            
+            self.log_msg.emit(f"Writing binary MDX file to {self.output_mdx}...")
+            
+            # 3. Write it safely to disk
+            with open(self.output_mdx, "wb") as f:
+                writer.write(f)
+                
+            self.finished.emit("MDX Pack Successful!")
+        except Exception as e:
+            self.error.emit(f"Packing Failed: {str(e)}")
+
 class ShellWorker(QThread):
     """Executes mdict-utils commands and streams output to prevent freezing."""
     log_msg = pyqtSignal(str)
@@ -228,7 +336,7 @@ class MdictStudio(QMainWindow):
         msg.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         
         msg.setText(
-            "<h3>Mdict Studio Pro V2.0</h3>"
+            "<h3>Mdict Studio Pro V2.1</h3>"
             "<p><b>Author:</b> Shawky Nasr &lt;shawkynasr@126.com&gt;</p>"
             "<p><b>GitHub:</b> <a href='https://github.com/shawkynasr/MdictStudioPro'>Official Repository</a></p>"
         )
@@ -414,7 +522,33 @@ class MdictStudio(QMainWindow):
         layout_out.addWidget(self.pack_out_path)
         grp_out.setLayout(layout_out)
         layout.addWidget(grp_out)
-
+        # ==========================================
+        # 4. Sorting Standard Block (New code)
+        # ==========================================
+        grp_sort = QGroupBox("4. Sorting Standard")
+        sort_layout = QHBoxLayout()
+        
+        self.radio_sort_mdictutils = QRadioButton("mdict-utils / Unicode (BlueDict, GoldenDict)")
+        self.radio_sort_mdxbuilder = QRadioButton("MdxBuilder (MDict, DictTango)")
+        # Recommendation: Set MdxBuilder as default since it fixes the core bug!
+        self.radio_sort_mdxbuilder.setChecked(True)
+        
+        self.sort_style_group = QButtonGroup(self)
+        # CRITICAL FIX: Add IDs (2 for mdictutils, 1 for mdxbuilder) to match our Worker logic
+        self.sort_style_group.addButton(self.radio_sort_mdictutils, 2) # ID 2
+        self.sort_style_group.addButton(self.radio_sort_mdxbuilder, 1) # ID 1
+        
+        if not HAVE_CUSTOM_WRITER:
+            self.radio_sort_mdxbuilder.setEnabled(False)
+            self.radio_sort_mdxbuilder.setToolTip("mdict-utils not importable as a library - install via pip to enable")
+            self.radio_sort_mdictutils.setChecked(True) # Force fallback to Unicode if disabled
+            
+        sort_layout.addWidget(self.radio_sort_mdictutils)
+        sort_layout.addWidget(self.radio_sort_mdxbuilder)
+        grp_sort.setLayout(sort_layout)
+        
+        layout.addWidget(grp_sort)
+        
         btn_layout = QHBoxLayout()
         btn_pack_mdx = QPushButton("🔨 Build MDX")
         btn_pack_mdx.setFixedHeight(40)
@@ -625,43 +759,115 @@ class MdictStudio(QMainWindow):
 
     # --- Actions ---
     def run_pack_mdx(self):
-        src = self.txt_source.text()
-        if not src: return QMessageBox.warning(self, "Missing", "Source TXT required")
+        # 1. Validate Input Source
+        src = self.txt_source.text().strip()
+        if not src: 
+            return QMessageBox.warning(self, "Missing", "Source TXT required")
+            
+        # 2. Validate Output Destination
+        raw_dst = self.pack_out_path.text().strip()
         
-        out = self.pack_out_path.text().strip()
-        if not out:
-            # Safely strips whatever the current extension is and adds .mdx
-            out = os.path.splitext(src)[0] + ".mdx"
-            if not out.endswith(".mdx"):
-                out += ".mdx"
+        if not raw_dst:
+            dst = os.path.splitext(src)[0] + ".mdx"
+        elif os.path.isdir(raw_dst):
+            base_name = os.path.splitext(os.path.basename(src))[0]
+            dst = os.path.join(raw_dst, base_name + ".mdx")
+        elif not os.path.isabs(raw_dst):
+            dst = os.path.join(os.path.dirname(src), raw_dst)
         else:
-            # 1. Automatically add .mdx if the user forgot to type it
-            if not out.lower().endswith(".mdx"):
-                out += ".mdx"
-                
-            # 2. If it's just a filename without a folder path, save it next to the source file
-            if not os.path.dirname(out):
-                src_dir = os.path.dirname(src)
-                out = os.path.join(src_dir, out)
-        
-        cmd = [self.mdict_path, "-a", src, out]
-        cmd.extend(["--encoding", self.pack_encoding.currentText()])
-        
-        if self.meta_title.text(): 
-            # Creates an invisible, self-deleting temp file in the macOS system cache!
-            tf = tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt", encoding="utf-8")
-            tf.write(self.meta_title.text())
-            tf.close() # Close it so mdict-utils can read it
+            dst = raw_dst
             
-            cmd.extend(["--title", tf.name])
+        if not dst.lower().endswith(".mdx"):
+            dst += ".mdx"
             
-            # Tell the worker to delete the system temp file when it finishes packing
-            worker_cleanup = lambda: os.remove(tf.name) if os.path.exists(tf.name) else None
-                
-        if self.meta_desc.text(): 
-            cmd.extend(["--description", self.meta_desc.text()])
+        # 3. Read UI Options
+        selected_style = "mdxbuilder" if self.sort_style_group.checkedId() == 1 else "mdict-utils"
+        encoding = self.pack_encoding.currentText() if hasattr(self, 'pack_encoding') else 'utf-8'
+        title = self.meta_title.text().strip() if hasattr(self, 'meta_title') else ''
         
-        self.run_shell_cmd(cmd)
+        # Safely read the description path
+        desc_path = self.meta_desc.text().strip() if hasattr(self, 'meta_desc') else ''
+
+        # 4. Cleanup Function for Threads
+        def _cleanup_and_finish():
+            if hasattr(self, 'active_workers') and self.pack_worker in self.active_workers:
+                self.active_workers.remove(self.pack_worker)
+
+        # 5. Branching Logic
+        if HAVE_CUSTOM_WRITER:
+            self.log_output.append(f"Starting native Python MDX packing ({selected_style} sort)...")
+            if hasattr(self, 'progress'):
+                self.progress.setRange(0, 0) # Indeterminate/Processing state
+            
+            # Read HTML content for the native writer
+            desc_content = ""
+            if desc_path and os.path.exists(desc_path):
+                with open(desc_path, "r", encoding=encoding) as f:
+                    desc_content = f.read()
+                    
+            self.pack_worker = PythonPackWorker(
+                input_txt=src,
+                output_mdx=dst,
+                sort_style=selected_style,
+                encoding=encoding,
+                title=title,
+                description=desc_content
+            )
+            
+            self.pack_worker.log_msg.connect(self.log_output.append)
+            self.pack_worker.finished.connect(self.on_pack_success)
+            self.pack_worker.error.connect(self.on_pack_error)
+            
+            # Attach cleanup
+            self.pack_worker.finished.connect(_cleanup_and_finish)
+            self.pack_worker.error.connect(_cleanup_and_finish)
+            
+            if hasattr(self, 'active_workers'):
+                self.active_workers.append(self.pack_worker)
+                
+            self.pack_worker.start()
+            
+        else:
+            self.log_output.append("mdict-utils native import failed. Falling back to Shell mode...")
+            if hasattr(self, 'progress'):
+                self.progress.setRange(0, 0)
+            
+            # Pass the raw path for the CLI
+            cmd = ["mdict", "-a", src, dst, "--encoding", encoding]
+            if title:
+                cmd.extend(["--title", title])
+            if desc_path:
+                cmd.extend(["--description", desc_path])
+                
+            self.pack_worker = ShellWorker(cmd)
+            self.pack_worker.log_msg.connect(self.log_output.append)
+            self.pack_worker.finished.connect(self.on_pack_success)
+            self.pack_worker.error.connect(self.on_pack_error)
+            
+            # Attach cleanup
+            self.pack_worker.finished.connect(_cleanup_and_finish)
+            self.pack_worker.error.connect(_cleanup_and_finish)
+            
+            if hasattr(self, 'active_workers'):
+                self.active_workers.append(self.pack_worker)
+                
+            self.pack_worker.start()
+            
+    def on_pack_success(self, message):
+        # Reset the range to normal and fill the bar to 100%
+        if hasattr(self, 'progress'):
+            self.progress.setRange(0, 100)
+            self.progress.setValue(100)
+            
+        QMessageBox.information(self, "Success", message)
+
+    def on_pack_error(self, err_msg):
+        # Reset the range to normal and empty the bar to 0%
+        if hasattr(self, 'progress'):
+            self.progress.setRange(0, 100)
+            self.progress.setValue(0)
+            
+        QMessageBox.critical(self, "Pack Failed", err_msg)
 
     def run_pack_mdd(self):
         src = self.mdd_source_dir.text()

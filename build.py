@@ -30,11 +30,18 @@ args = [
     "--windowed",
     "--noconfirm",
     "--clean",
+    
+    # --- EXISTING HIDDEN IMPORTS ---
     # openpyxl is only imported dynamically by plugins loaded at runtime,
     # so PyInstaller's static analysis can't see it without this hint.
     "--hidden-import", "openpyxl",
-    # lzo is required by mdict-utils under the hood for LZO1X-1 compression.
-    "--hidden-import", "lzo",
+    
+    # --- V2.1 NATIVE ENGINE HIDDEN IMPORTS ---
+    "--hidden-import", "mdict_utils",
+    "--hidden-import", "mdict_utils.writer",
+    "--hidden-import", "xxhash",
+
+    # --- ASSETS & PLUGINS ---
     # Bundle default plugins + framework helper files so PluginManager's
     # first-run auto-extract (see MdictStudio.py) has something to copy
     # into ~/Documents/Mdict Studio Pro/plugins.
