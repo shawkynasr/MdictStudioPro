@@ -8,6 +8,8 @@ on:
       - "v*.*.*"
   workflow_dispatch:
 
+permissions:
+  contents: write
 jobs:
   # ---------------------------------------------------------------------
   # macOS (Apple Silicon / arm64 only)
