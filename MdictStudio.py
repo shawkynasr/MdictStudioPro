@@ -7,6 +7,7 @@ import time
 import inspect
 import importlib.util
 import tempfile
+import io
 from pathlib import Path
 
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
@@ -16,6 +17,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QProgressBar, QRadioButton, QButtonGroup)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QAction
+
+from mdict_utils.__main__ import run as mdict_run
 
 from base_plugin import BaseConverterPlugin
 
@@ -171,80 +174,119 @@ class PythonPackWorker(QThread):
     error = pyqtSignal(str)
     log_msg = pyqtSignal(str)
 
-    def __init__(self, input_txt, output_mdx, sort_style, encoding="utf-8", title="", description=""):
+    def __init__(self, input_path, output_path, sort_style, is_mdd=False,
+                 encoding="utf-8", title="", description="",
+                 key_size=32*1024, record_size=64*1024):
         super().__init__()
-        self.input_txt = input_txt
-        self.output_mdx = output_mdx
+        self.input_path = input_path
+        self.output_path = output_path
         self.sort_style = sort_style
+        self.is_mdd = is_mdd
         self.encoding = encoding
         self.title = title
         self.description = description
+        self.key_size = key_size
+        self.record_size = record_size
+
+    def _mdd_dictionary_builder(self, dirpath):
+        """Scans directory and builds the specific dictionary structure expected by MDictWriter."""
+        items = []
+        for root, _, files in os.walk(dirpath):
+            for file in files:
+                filepath = os.path.join(root, file)
+                rel_path = os.path.relpath(filepath, dirpath)
+                key = "\\" + rel_path.replace("/", "\\")
+                
+                # The writer expects a dict with these exact keys to read the binary data
+                items.append({
+                    'key': key,
+                    'path': filepath,
+                    'size': os.path.getsize(filepath),
+                    'pos': 0  # Starting at byte 0 of the individual file
+                })
+        return items
 
     def run(self):
         try:
-            self.log_msg.emit(f"Parsing dictionary text file ({self.encoding})...")
+            self.log_msg.emit("Scanning source resources...")
             
-            # Import the library functions
-            import mdict_utils.writer as mu_writer
+            if self.is_mdd:
+                # Build the list of file dictionaries manually
+                dictionary_data = self._mdd_dictionary_builder(self.input_path)
+            else:
+                # Use the official library function to handle temporary DB creation for MDX
+                self.log_msg.emit("Compiling text into temporary database...")
+                dictionary_data = pack_mdx_txt(self.input_path, encoding=self.encoding)
+
+            self.log_msg.emit("Initializing native packing engine...")
             
-            # 1. Parse the text file into the exact dictionary list the writer expects
-            # (This completely replaces parse_txt_to_tuples!)
-            dictionary_data = mu_writer.pack_mdx_txt(
-                self.input_txt, 
-                encoding=self.encoding
-            )
-            
-            self.log_msg.emit(f"Initializing native packing engine ({self.sort_style} sort)...")
-            
-            # 2. Instantiate our custom writer directly with the parsed data
             writer = MDictWriterCustomSort(
-                dictionary_data,
-                title=self.title,
+                dictionary_data, 
+                title=self.title, 
                 description=self.description,
+                key_size=self.key_size, 
+                record_size=self.record_size,
+                encoding=self.encoding, 
+                is_mdd=self.is_mdd,
                 sort_style=self.sort_style
             )
+
+            kind = "MDD" if self.is_mdd else "MDX"
+            self.log_msg.emit(f"Writing binary {kind} file to {self.output_path}...")
             
-            self.log_msg.emit(f"Writing binary MDX file to {self.output_mdx}...")
-            
-            # 3. Write it safely to disk
-            with open(self.output_mdx, "wb") as f:
+            with open(self.output_path, "wb") as f:
                 writer.write(f)
-                
-            self.finished.emit("MDX Pack Successful!")
+
+            self.finished.emit(f"{kind} Pack Successful!")
+            
         except Exception as e:
             self.error.emit(f"Packing Failed: {str(e)}")
 
-class ShellWorker(QThread):
-    """Executes mdict-utils commands and streams output to prevent freezing."""
-    log_msg = pyqtSignal(str)
+class MdictCliWorker(QThread):
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
+    log_msg = pyqtSignal(str)
 
-    def __init__(self, command):
+    def __init__(self, cli_args):
         super().__init__()
-        self.command = command
+        self.cli_args = cli_args
 
     def run(self):
+        self.log_msg.emit(f"Running native mdict: mdict {' '.join(self.cli_args)}")
+        
+        old_argv = sys.argv
+        old_stdout = sys.stdout
+        captured_out = io.StringIO()
+        
         try:
-            self.log_msg.emit(f"Running: {' '.join(self.command)}")
-            # Use Popen to stream stdout/stderr without freezing
-            process = subprocess.Popen(
-                self.command, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT, 
-                text=True
-            )
+            sys.argv = ["mdict"] + self.cli_args
+            sys.stdout = captured_out  # Catch all print statements!
+            exit_code = mdict_run()
             
-            for line in process.stdout:
-                self.log_msg.emit(line.strip())
+            # Funnel the captured text to the UI
+            output_text = captured_out.getvalue().strip()
+            if output_text:
+                self.log_msg.emit(output_text)
                 
-            process.wait()
-            if process.returncode == 0:
-                self.finished.emit("Process completed successfully.")
+            if exit_code in (0, None):
+                self.finished.emit("Operation completed successfully.")
             else:
-                self.error.emit(f"Process exited with code {process.returncode}")
+                self.error.emit(f"mdict_utils exited with code: {exit_code}")
+                
+        except SystemExit as e:
+            output_text = captured_out.getvalue().strip()
+            if output_text:
+                self.log_msg.emit(output_text)
+
+            if e.code in (0, None):
+                self.finished.emit("Operation completed successfully.")
+            else:
+                self.error.emit(f"Process exited with error code: {e.code}")
         except Exception as e:
-            self.error.emit(str(e))
+            self.error.emit(f"Operation failed: {str(e)}")
+        finally:
+            sys.argv = old_argv
+            sys.stdout = old_stdout
 
 class PluginWorker(QThread):
     """Executes dynamic dictionary parsers safely in the background."""
@@ -725,10 +767,13 @@ class MdictStudio(QMainWindow):
 
     # --- Shell Execution ---
     def run_shell_cmd(self, cmd):
-        if not cmd[-1]: return
-        self.progress.setRange(0, 0) # Indeterminate loading
+        if not cmd: return
+        self.progress.setRange(0, 0) 
         
-        worker = ShellWorker(cmd)
+        # Strip "mdict" from the front so we only pass the arguments to the worker
+        args = cmd[1:] if cmd[0] in ("mdict", self.mdict_path) else cmd
+        
+        worker = MdictCliWorker(args)
         worker.log_msg.connect(self.log_output.append)
         worker.finished.connect(self.on_success)
         worker.error.connect(self.on_error)
@@ -839,7 +884,7 @@ class MdictStudio(QMainWindow):
             if desc_path:
                 cmd.extend(["--description", desc_path])
                 
-            self.pack_worker = ShellWorker(cmd)
+            self.pack_worker = MdictCliWorker(cmd[1:])
             self.pack_worker.log_msg.connect(self.log_output.append)
             self.pack_worker.finished.connect(self.on_pack_success)
             self.pack_worker.error.connect(self.on_pack_error)
@@ -870,9 +915,72 @@ class MdictStudio(QMainWindow):
         QMessageBox.critical(self, "Pack Failed", err_msg)
 
     def run_pack_mdd(self):
-        src = self.mdd_source_dir.text()
-        if not src: return QMessageBox.warning(self, "Missing", "Resource Dir required")
-        self.run_shell_cmd([self.mdict_path, "-a", src, src + ".mdd"])
+        src = self.mdd_source_dir.text().strip()
+        if not src:
+            return QMessageBox.warning(self, "Missing", "Resource Dir required")
+
+        # --- FIX: Read the Output field exactly like MDX does ---
+        raw_dst = self.pack_out_path.text().strip()
+        
+        if not raw_dst:
+            # Default to folder name if output box is empty
+            dst = src.rstrip("/\\") + ".mdd"
+        elif os.path.isdir(raw_dst):
+            # If they just gave a folder, put the file inside it
+            base_name = os.path.basename(src.rstrip("/\\"))
+            dst = os.path.join(raw_dst, base_name + ".mdd")
+        elif not os.path.isabs(raw_dst):
+            # Handle relative filenames
+            dst = os.path.join(os.path.dirname(src.rstrip("/\\")), raw_dst)
+        else:
+            # Absolute path (what you typed: CC-CEDICT 092026)
+            dst = raw_dst
+            
+        # Ensure it ends with .mdd
+        if not dst.lower().endswith(".mdd"):
+            dst += ".mdd"
+        # --------------------------------------------------------
+
+        selected_style = "mdxbuilder" if self.sort_style_group.checkedId() == 1 else "mdict-utils"
+        title = self.meta_title.text().strip() if hasattr(self, 'meta_title') else ''
+        desc_path = self.meta_desc.text().strip() if hasattr(self, 'meta_desc') else ''
+        desc_content = ""
+        
+        if desc_path and os.path.exists(desc_path):
+            with open(desc_path, "r", encoding="utf-8") as f:
+                desc_content = f.read()
+
+        self.progress.setRange(0, 0)
+
+        if HAVE_CUSTOM_WRITER:
+            self.log_output.append(f"Starting native Python MDD packing ({selected_style} sort)...")
+            self.mdd_worker = PythonPackWorker(
+                input_path=src, output_path=dst, sort_style=selected_style,
+                is_mdd=True, title=title, description=desc_content,
+            )
+        else:
+            self.log_output.append("mdict-utils native import failed. Falling back to Shell mode...")
+            args = ["-a", src, dst]
+            if title: args.extend(["--title", title])
+            if desc_path: args.extend(["--description", desc_path])
+            self.mdd_worker = MdictCliWorker(args)
+
+        self.mdd_worker.finished.connect(self.on_pack_success)
+        self.mdd_worker.error.connect(self.on_pack_error)
+        if hasattr(self.mdd_worker, 'log_msg'):
+            self.mdd_worker.log_msg.connect(self.log_output.append)
+
+        def _cleanup():
+            if hasattr(self, 'active_workers') and self.mdd_worker in self.active_workers:
+                self.active_workers.remove(self.mdd_worker)
+
+        self.mdd_worker.finished.connect(_cleanup)
+        self.mdd_worker.error.connect(_cleanup)
+        
+        if hasattr(self, 'active_workers'):
+            self.active_workers.append(self.mdd_worker)
+            
+        self.mdd_worker.start()
 
     def run_unpack(self):
         src = self.unpack_src.text()
@@ -893,10 +1001,22 @@ class MdictStudio(QMainWindow):
         self.log_output.append(f"Extracting style file from {src}...")
         
         try:
-            # 1. Run the metadata command silently in the background
-            result = subprocess.run([self.mdict_path, "-m", src], capture_output=True, text=True)
-            output = result.stdout
+            # 1. Run the metadata command natively and hijack stdout in-memory
+            captured_output = io.StringIO()
+            old_stdout, old_argv = sys.stdout, sys.argv
             
+            try:
+                sys.stdout = captured_output
+                sys.argv = ["mdict", "-m", src]
+                mdict_run()
+            except SystemExit:
+                pass # Prevent mdict-utils from closing the app
+            finally:
+                sys.stdout = old_stdout
+                sys.argv = old_argv
+
+            output = captured_output.getvalue()
+                        
             # 2. Safely extract the block using string splitting
             if 'Stylesheet: "' in output:
                 style_part = output.split('Stylesheet: "', 1)[1]
