@@ -363,6 +363,15 @@ class MdictStudio(QMainWindow):
                 self.log_output.append(f"<font color='red'> - <b>{filename}</b>: {err}</font>")
             self.log_output.append("<br>")
 
+    def lock_ui(self):
+        """Locks the UI to prevent concurrent operations and race conditions."""
+        self.tabs.setEnabled(False)
+
+    def unlock_ui(self):
+        """Unlocks the UI only if no background workers are currently active."""
+        if not self.active_workers:
+            self.tabs.setEnabled(True)
+
     def create_menu_bar(self):
         menu_bar = self.menuBar()
         help_menu = menu_bar.addMenu("&Help")
@@ -517,11 +526,13 @@ class MdictStudio(QMainWindow):
         def cleanup_plugin_worker():
             if worker in self.active_workers:
                 self.active_workers.remove(worker)
-                
+            self.unlock_ui()
+
         worker.finished.connect(cleanup_plugin_worker)
         if hasattr(worker, 'error'):
             worker.error.connect(cleanup_plugin_worker)
             
+        self.lock_ui()
         worker.start()
 
     # ==========================================================
@@ -783,11 +794,13 @@ class MdictStudio(QMainWindow):
         def cleanup_shell_worker():
             if worker in self.active_workers:
                 self.active_workers.remove(worker)
-                
+            self.unlock_ui()
+
         worker.finished.connect(cleanup_shell_worker)
         if hasattr(worker, 'error'):
             worker.error.connect(cleanup_shell_worker)
             
+        self.lock_ui()
         worker.start()
 
     def on_success(self, log):
@@ -837,6 +850,10 @@ class MdictStudio(QMainWindow):
         def _cleanup_and_finish():
             if hasattr(self, 'active_workers') and self.pack_worker in self.active_workers:
                 self.active_workers.remove(self.pack_worker)
+            self.unlock_ui()
+
+        # Initialize temp path before branches to prevent scope errors in cleanup
+        title_temp_path = None
 
         # 5. Branching Logic
         if HAVE_CUSTOM_WRITER:
@@ -851,8 +868,8 @@ class MdictStudio(QMainWindow):
                     desc_content = f.read()
                     
             self.pack_worker = PythonPackWorker(
-                input_txt=src,
-                output_mdx=dst,
+                input_path=src,      # Corrected keyword
+                output_path=dst,     # Corrected keyword
                 sort_style=selected_style,
                 encoding=encoding,
                 title=title,
@@ -869,7 +886,8 @@ class MdictStudio(QMainWindow):
             
             if hasattr(self, 'active_workers'):
                 self.active_workers.append(self.pack_worker)
-                
+            
+            self.lock_ui()    
             self.pack_worker.start()
             
         else:
@@ -877,10 +895,18 @@ class MdictStudio(QMainWindow):
             if hasattr(self, 'progress'):
                 self.progress.setRange(0, 0)
             
-            # Pass the raw path for the CLI
             cmd = ["mdict", "-a", src, dst, "--encoding", encoding]
+            
+            # --title/--description expect FILE PATHS the CLI reads internally,
+            # not literal text - desc_path is already a path (fine as-is), but
+            # title is plain typed text, so write it to a temp file first.
+            title_temp_path = None
             if title:
-                cmd.extend(["--title", title])
+                title_fd, title_temp_path = tempfile.mkstemp(suffix=".txt")
+                with os.fdopen(title_fd, "w", encoding="utf-8") as f:
+                    f.write(title)
+                cmd.extend(["--title", title_temp_path])
+                
             if desc_path:
                 cmd.extend(["--description", desc_path])
                 
@@ -889,13 +915,19 @@ class MdictStudio(QMainWindow):
             self.pack_worker.finished.connect(self.on_pack_success)
             self.pack_worker.error.connect(self.on_pack_error)
             
-            # Attach cleanup
+            def _cleanup_title_temp():
+                if title_temp_path and os.path.exists(title_temp_path):
+                    os.remove(title_temp_path)
+            
+            self.pack_worker.finished.connect(_cleanup_title_temp)
+            self.pack_worker.error.connect(_cleanup_title_temp)
             self.pack_worker.finished.connect(_cleanup_and_finish)
             self.pack_worker.error.connect(_cleanup_and_finish)
             
             if hasattr(self, 'active_workers'):
                 self.active_workers.append(self.pack_worker)
-                
+            
+            self.lock_ui()    
             self.pack_worker.start()
             
     def on_pack_success(self, message):
@@ -952,6 +984,9 @@ class MdictStudio(QMainWindow):
 
         self.progress.setRange(0, 0)
 
+        # Initialize temp path before branches to prevent UnboundLocalError during cleanup
+        title_temp_path = None
+
         if HAVE_CUSTOM_WRITER:
             self.log_output.append(f"Starting native Python MDD packing ({selected_style} sort)...")
             self.mdd_worker = PythonPackWorker(
@@ -961,8 +996,18 @@ class MdictStudio(QMainWindow):
         else:
             self.log_output.append("mdict-utils native import failed. Falling back to Shell mode...")
             args = ["-a", src, dst]
-            if title: args.extend(["--title", title])
-            if desc_path: args.extend(["--description", desc_path])
+            
+            # Same issue as run_pack_mdx: --title expects a FILE PATH the CLI
+            # reads internally, not literal text - write it to a temp file first.
+            if title:
+                title_fd, title_temp_path = tempfile.mkstemp(suffix=".txt")
+                with os.fdopen(title_fd, "w", encoding="utf-8") as f:
+                    f.write(title)
+                args.extend(["--title", title_temp_path])
+                
+            if desc_path:
+                args.extend(["--description", desc_path])
+                
             self.mdd_worker = MdictCliWorker(args)
 
         self.mdd_worker.finished.connect(self.on_pack_success)
@@ -970,9 +1015,17 @@ class MdictStudio(QMainWindow):
         if hasattr(self.mdd_worker, 'log_msg'):
             self.mdd_worker.log_msg.connect(self.log_output.append)
 
+        def _cleanup_title_temp():
+            if title_temp_path and os.path.exists(title_temp_path):
+                os.remove(title_temp_path)
+
+        self.mdd_worker.finished.connect(_cleanup_title_temp)
+        self.mdd_worker.error.connect(_cleanup_title_temp)
+
         def _cleanup():
             if hasattr(self, 'active_workers') and self.mdd_worker in self.active_workers:
                 self.active_workers.remove(self.mdd_worker)
+            self.unlock_ui()
 
         self.mdd_worker.finished.connect(_cleanup)
         self.mdd_worker.error.connect(_cleanup)
@@ -980,6 +1033,7 @@ class MdictStudio(QMainWindow):
         if hasattr(self, 'active_workers'):
             self.active_workers.append(self.mdd_worker)
             
+        self.lock_ui()
         self.mdd_worker.start()
 
     def run_unpack(self):
@@ -1017,7 +1071,7 @@ class MdictStudio(QMainWindow):
 
             output = captured_output.getvalue()
                         
-            # 2. Safely extract the block using string splitting
+                        # 2. Safely extract the block using string splitting
             if 'Stylesheet: "' in output:
                 style_part = output.split('Stylesheet: "', 1)[1]
                 
@@ -1047,6 +1101,7 @@ class MdictStudio(QMainWindow):
                 if not style_content:
                     self.log_output.append("The Stylesheet is empty. Nothing to export.")
                     self.progress.setRange(0, 100)
+                    self.progress.setValue(100)
                     return
                     
                 # 4. Save it as "_style.txt" next to the original MDX
@@ -1060,17 +1115,19 @@ class MdictStudio(QMainWindow):
                     
                 self.log_output.append(f"--- SUCCESS: Exported to {out_path} ---")
                 QMessageBox.information(self, "Success", f"Style file successfully extracted to:\n{out_path}")
+                self.progress.setRange(0, 100)
+                self.progress.setValue(100)
                 
             else:
                 self.log_output.append("No Stylesheet was found inside this MDX file.")
                 QMessageBox.information(self, "Not Found", "This dictionary does not contain an embedded .style file.")
+                self.progress.setRange(0, 100)
+                self.progress.setValue(100)
                 
         except Exception as e:
             self.log_output.append(f"Error extracting style: {e}")
-            
-        finally:
             self.progress.setRange(0, 100)
-            self.progress.setValue(100)
+            self.progress.setValue(0)
             
 if __name__ == "__main__":
     app = QApplication(sys.argv)
